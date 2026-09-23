@@ -1,0 +1,323 @@
+#include <WiFi.h>
+#include "esp_wifi.h"
+
+// ============================================================
+// WIFI DETAILS
+// ============================================================
+
+
+const char* WIFI_SSID = "Nothing";
+const char* WIFI_PASSWORD = "00000000";
+
+
+// ============================================================
+// WIFI WPA2 / WPA3 CONFIGURATION
+// ============================================================
+
+typedef struct
+{
+    wifi_auth_mode_t security;
+    bool enable11b;
+    bool enable11g;
+    bool enable11n;
+
+}  WiFiConfig;
+
+
+// ============================================================
+// WPA2 / WPA3 CONFIGURATION
+// ============================================================
+
+WiFiConfig wifiConfig =
+{
+   WIFI_AUTH_WPA2_WPA3_PSK,   // WPA2 + WPA3
+
+    true,                 // 802.11b
+    true,                 // 802.11g
+    true                  // 802.11n
+};
+
+
+// ============================================================
+// SET 802.11 PROTOCOL
+// ============================================================
+
+uint8_t getProtocol()
+{
+    uint8_t protocol = 0;
+
+    if (wifiConfig.enable11b)
+    {
+        protocol |= WIFI_PROTOCOL_11B;
+    }
+
+    if (wifiConfig.enable11g)
+    {
+        protocol |= WIFI_PROTOCOL_11G;
+    }
+
+    if (wifiConfig.enable11n)
+    {
+        protocol |= WIFI_PROTOCOL_11N;
+    }
+
+    return protocol;
+}
+void scanWiFiSecurity()
+{
+    Serial.println();
+    Serial.println("======================================");
+    Serial.println("        WIFI SECURITY SCAN");
+    Serial.println("======================================");
+
+    int networks = WiFi.scanNetworks();
+
+    if (networks <= 0)
+    {
+        Serial.println("No Wi-Fi networks found");
+        return;
+    }
+
+    for (int i = 0; i < networks; i++)
+    {
+        Serial.print("SSID: ");
+        Serial.print(WiFi.SSID(i));
+
+        Serial.print(" | Security: ");
+
+        wifi_auth_mode_t auth = WiFi.encryptionType(i);
+
+        switch (auth)
+        {
+            case WIFI_AUTH_OPEN:
+                Serial.println("OPEN");
+                break;
+
+            case WIFI_AUTH_WPA_PSK:
+                Serial.println("WPA");
+                break;
+
+            case WIFI_AUTH_WPA2_PSK:
+                Serial.println("WPA2");
+                break;
+
+            case WIFI_AUTH_WPA_WPA2_PSK:
+                Serial.println("WPA/WPA2");
+                break;
+
+            case WIFI_AUTH_WPA3_PSK:
+                Serial.println("WPA3");
+                break;
+
+            case WIFI_AUTH_WPA2_WPA3_PSK:
+                Serial.println("WPA2/WPA3");
+                break;
+
+            default:
+                Serial.println("OTHER");
+                break;
+        }
+    }
+
+    Serial.println("======================================");
+
+    WiFi.scanDelete();
+}
+
+// ============================================================
+// PRINT WIFI INFORMATION
+// ============================================================
+
+void printWiFiInfo()
+{
+    Serial.println();
+    Serial.println("======================================");
+ Serial.println("    ESP32 WPA2 / WPA3 WIFI TEST");
+    Serial.println("======================================");
+
+    Serial.print("SSID        : ");
+    Serial.println(WiFi.SSID());
+
+    Serial.print("IP Address  : ");
+    Serial.println(WiFi.localIP());
+
+    Serial.print("MAC Address : ");
+    Serial.println(WiFi.macAddress());
+
+    Serial.print("RSSI        : ");
+    Serial.print(WiFi.RSSI());
+    Serial.println(" dBm");
+
+    Serial.print("Channel     : ");
+    Serial.println(WiFi.channel());
+
+    Serial.println("Security    : WPA2 / WPA3");
+    Serial.println("Protocol    : 802.11 b/g/n");
+
+    Serial.println("======================================");
+}
+
+
+// ============================================================
+// SETUP
+// ============================================================
+
+void setup()
+{
+    Serial.begin(115200);
+
+    delay(1000);
+
+    Serial.println();
+    Serial.println("======================================");
+    Serial.println("       ESP32 WPA3 WIFI TEST");
+    Serial.println("======================================");
+
+
+    // --------------------------------------------------------
+    // 1. ESP32 STATION MODE
+    // --------------------------------------------------------
+
+    WiFi.mode(WIFI_STA);
+
+    Serial.println("Wi-Fi Mode  : STA");
+
+scanWiFiSecurity();
+    // --------------------------------------------------------
+    //// 2. SET MINIMUM SECURITY TO WPA2
+//
+// WPA2 is the minimum security allowed.
+// WPA3 is also accepted when available.
+//
+    //
+    // --------------------------------------------------------
+
+  WiFi.setMinSecurity(WIFI_AUTH_WPA2_PSK);
+
+  Serial.println("Security    : WPA2 / WPA3");
+
+
+    // --------------------------------------------------------
+    // 3. ENABLE 802.11 b/g/n
+    // --------------------------------------------------------
+
+    uint8_t protocol = getProtocol();
+
+    esp_err_t result =
+        esp_wifi_set_protocol(
+            WIFI_IF_STA,
+            protocol
+        );
+
+
+    if (result == ESP_OK)
+    {
+        Serial.println("Protocol    : 802.11 b/g/n");
+    }
+    else
+    {
+        Serial.print("Protocol configuration failed: ");
+        Serial.println(result);
+    }
+
+
+    // --------------------------------------------------------
+    // 4. DISPLAY SSID
+    // --------------------------------------------------------
+
+    Serial.println();
+
+    Serial.print("SSID        : ");
+    Serial.println(WIFI_SSID);
+
+
+    // --------------------------------------------------------
+    // 5. CONNECT
+    // --------------------------------------------------------
+
+    Serial.println();
+ Serial.print("Connecting to WPA2/WPA3 Wi-Fi");
+
+    WiFi.begin(
+        WIFI_SSID,
+        WIFI_PASSWORD
+    );
+
+
+    // --------------------------------------------------------
+    // 6. WAIT FOR CONNECTION
+    // --------------------------------------------------------
+
+    int attempts = 0;
+
+    while (
+        WiFi.status() != WL_CONNECTED &&
+        attempts < 30
+    )
+    {
+        delay(500);
+
+        Serial.print(".");
+
+        attempts++;
+    }
+
+
+    // --------------------------------------------------------
+    // 7. CONNECTION RESULT
+    // --------------------------------------------------------
+
+    Serial.println();
+
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        printWiFiInfo();
+    }
+    else
+    {
+        Serial.println();
+        Serial.println("======================================");
+     Serial.println("     WPA2/WPA3 CONNECTION FAILED");
+        Serial.println("======================================");
+
+        Serial.print("Wi-Fi Status: ");
+        Serial.println(WiFi.status());
+
+        Serial.println();
+        Serial.println("Check:");
+        Serial.println("1. SSID");
+        Serial.println("2. Password");
+        Serial.println("3. Router is 2.4 GHz");
+       Serial.println("4. Router uses WPA2 or WPA3-Personal");
+        Serial.println("5. Wi-Fi signal");
+
+        Serial.println("======================================");
+    }
+}
+
+// ============================================================
+// LOOP
+// ============================================================
+
+void loop()
+{
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        Serial.println();
+        Serial.println("Wi-Fi Status : CONNECTED");
+
+        Serial.print("IP Address   : ");
+        Serial.println(WiFi.localIP());
+
+        Serial.print("RSSI         : ");
+        Serial.print(WiFi.RSSI());
+        Serial.println(" dBm");
+    }
+    else
+    {
+        Serial.println();
+        Serial.println("Wi-Fi Status : DISCONNECTED");
+    }
+
+    delay(5000);
+}
