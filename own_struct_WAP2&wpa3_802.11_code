@@ -1,0 +1,256 @@
+#include <WiFi.h>
+#include "esp_wifi.h"
+
+// ============================================================
+// WIFI CREDENTIALS
+// ============================================================
+const char* WIFI_SSID     = "Hari";
+const char* WIFI_PASSWORD = "123456789";
+
+// ============================================================
+// OUR CUSTOM SECURITY ENUM (ONLY 3 REQUIRED MODES)
+// ============================================================
+typedef enum {
+    AUTH_MODE_WPA2,
+    AUTH_MODE_WPA3,
+    AUTH_MODE_WPA2_WPA3
+} AppSecurityMode;
+
+// ============================================================
+// OUR CUSTOM CONFIGURATION STRUCTURE
+// ============================================================
+typedef struct {
+    AppSecurityMode security; // Chosen mode: WPA2, WPA3, or WPA2/WPA3
+    bool enable11b;
+    bool enable11g;
+    bool enable11n;
+} AppWiFiConfig;
+
+// ============================================================
+// ACTIVE CONFIGURATION INSTANCE
+// Change security here:
+//   - AUTH_MODE_WPA2
+//   - AUTH_MODE_WPA3
+//   - AUTH_MODE_WPA2_WPA3
+// ============================================================
+AppWiFiConfig myConfig = {
+    AUTH_MODE_WPA2_WPA3,  // Target security mode
+    true,                 // 802.11b
+    true,                 // 802.11g
+    true                  // 802.11n
+};
+
+// ============================================================
+// CONVERT OUR ENUM TO ESP-IDF MINIMUM SECURITY
+// ============================================================
+wifi_auth_mode_t getMinSecurityForESP(AppSecurityMode mode) {
+    switch (mode) {
+        case AUTH_MODE_WPA3:
+            return WIFI_AUTH_WPA3_PSK;      // Only accept WPA3
+
+        case AUTH_MODE_WPA2:
+        case AUTH_MODE_WPA2_WPA3:
+        default:
+            return WIFI_AUTH_WPA2_PSK;      // Accept WPA2 and higher
+    }
+}
+
+// ============================================================
+// CONVERT ESP-IDF SCAN/CONNECTED AUTH TO OUR ENUM
+// Returns true if it matches one of our 3 modes
+// ============================================================
+bool convertToAppMode(wifi_auth_mode_t espAuth, AppSecurityMode* outMode) {
+    switch (espAuth) {
+        case WIFI_AUTH_WPA2_PSK:
+            *outMode = AUTH_MODE_WPA2;
+            return true;
+
+        case WIFI_AUTH_WPA3_PSK:
+            *outMode = AUTH_MODE_WPA3;
+            return true;
+
+        case WIFI_AUTH_WPA2_WPA3_PSK:
+            *outMode = AUTH_MODE_WPA2_WPA3;
+            return true;
+
+        default:
+            return false; // Ignored mode (Open, WEP, Enterprise, etc.)
+    }
+}
+
+// ============================================================
+// PRINT OUR SECURITY MODE NAME
+// ============================================================
+const char* getSecurityString(AppSecurityMode mode) {
+    switch (mode) {
+        case AUTH_MODE_WPA2:      return "WPA2";
+        case AUTH_MODE_WPA3:      return "WPA3";
+        case AUTH_MODE_WPA2_WPA3: return "WPA2/WPA3";
+        default:                  return "UNKNOWN";
+    }
+}
+
+// ============================================================
+// SET 802.11 PROTOCOL
+// ============================================================
+uint8_t getProtocol() {
+    uint8_t protocol = 0;
+    if (myConfig.enable11b) protocol |= WIFI_PROTOCOL_11B;
+    if (myConfig.enable11g) protocol |= WIFI_PROTOCOL_11G;
+    if (myConfig.enable11n) protocol |= WIFI_PROTOCOL_11N;
+    return protocol;
+}
+
+// ============================================================
+// SCAN ONLY WPA2, WPA3, AND WPA2/WPA3 NETWORKS
+// ============================================================
+void scanWiFiSecurity() {
+    Serial.println("\n======================================");
+    Serial.println("        WIFI SECURITY SCAN");
+    Serial.println("======================================");
+
+    int networks = WiFi.scanNetworks();
+
+    if (networks <= 0) {
+        Serial.println("No Wi-Fi networks found");
+        return;
+    }
+
+    for (int i = 0; i < networks; i++) {
+        AppSecurityMode detectedMode;
+        wifi_auth_mode_t rawAuth = WiFi.encryptionType(i);
+
+        Serial.print("SSID: ");
+        Serial.print(WiFi.SSID(i));
+        Serial.print(" | Security: ");
+
+        if (convertToAppMode(rawAuth, &detectedMode)) {
+            Serial.println(getSecurityString(detectedMode));
+        } else {
+            Serial.println("Ignored (Not WPA2 / WPA3)");
+        }
+    }
+
+    Serial.println("======================================");
+    WiFi.scanDelete();
+}
+
+// ============================================================
+// GET ACTUAL CONNECTED SECURITY
+// ============================================================
+void printConnectedSecurity() {
+    wifi_ap_record_t apInfo;
+    esp_err_t result = esp_wifi_sta_get_ap_info(&apInfo);
+
+    if (result == ESP_OK) {
+        Serial.print("Connected Security : ");
+        AppSecurityMode connectedMode;
+
+        if (convertToAppMode(apInfo.authmode, &connectedMode)) {
+            Serial.println(getSecurityString(connectedMode));
+        } else {
+            Serial.println("Other / Legacy");
+        }
+    } else {
+        Serial.println("Connected Security : Unable to determine");
+    }
+}
+
+// ============================================================
+// PRINT CONNECTION DETAILS
+// ============================================================
+void printWiFiInfo() {
+    Serial.println("\n======================================");
+    Serial.println("      ESP32 WIFI CONNECTION INFO");
+    Serial.println("======================================");
+
+    Serial.print("SSID               : "); Serial.println(WiFi.SSID());
+    Serial.print("IP Address         : "); Serial.println(WiFi.localIP());
+    Serial.print("MAC Address        : "); Serial.println(WiFi.macAddress());
+    Serial.print("RSSI               : "); Serial.print(WiFi.RSSI()); Serial.println(" dBm");
+    Serial.print("Channel            : "); Serial.println(WiFi.channel());
+    Serial.print("Target Mode        : "); Serial.println(getSecurityString(myConfig.security));
+
+    printConnectedSecurity();
+
+    Serial.println("Protocol           : 802.11 b/g/n");
+    Serial.println("======================================");
+}
+
+// ============================================================
+// SETUP
+// ============================================================
+void setup() {
+    Serial.begin(115200);
+    delay(1000);
+
+    Serial.println("\n======================================");
+    Serial.println("      ESP32 CUSTOM SECURITY TEST");
+    Serial.println("======================================");
+
+    // 1. Station Mode
+    WiFi.mode(WIFI_STA);
+    Serial.println("Wi-Fi Mode         : STA");
+
+    // 2. Scan available networks
+    scanWiFiSecurity();
+
+    // 3. Set minimum security based on our custom struct
+    wifi_auth_mode_t minSec = getMinSecurityForESP(myConfig.security);
+    WiFi.setMinSecurity(minSec);
+
+    Serial.print("Configured Security: ");
+    Serial.println(getSecurityString(myConfig.security));
+
+    // 4. Protocol Bitmask
+    uint8_t protocol = getProtocol();
+    esp_err_t result = esp_wifi_set_protocol(WIFI_IF_STA, protocol);
+    if (result == ESP_OK) {
+        Serial.println("Protocol           : 802.11 b/g/n");
+    } else {
+        Serial.printf("Protocol error     : %d\n", result);
+    }
+
+    // 5. Connect
+    Serial.print("\nTarget SSID        : ");
+    Serial.println(WIFI_SSID);
+    Serial.println("Connecting...");
+
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+    }
+    Serial.println();
+
+    // 6. Result
+    if (WiFi.status() == WL_CONNECTED) {
+        printWiFiInfo();
+    } else {
+        Serial.println("\n======================================");
+        Serial.println("          CONNECTION FAILED");
+        Serial.println("======================================");
+        Serial.print("Status Code        : ");
+        Serial.println(WiFi.status());
+        Serial.println("Check: SSID, Password, 2.4GHz band, and security match.");
+        Serial.println("======================================");
+    }
+}
+
+// ============================================================
+// LOOP
+// ============================================================
+void loop() {
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWi-Fi Status : CONNECTED");
+        Serial.print("IP Address   : "); Serial.println(WiFi.localIP());
+        Serial.print("RSSI         : "); Serial.print(WiFi.RSSI()); Serial.println(" dBm");
+        printConnectedSecurity();
+    } else {
+        Serial.println("\nWi-Fi Status : DISCONNECTED");
+    }
+    delay(5000);
+}
